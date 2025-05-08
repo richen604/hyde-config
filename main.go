@@ -23,11 +23,11 @@ var (
 	hyprFile   string
 	noDaemon   bool
 	noExport   bool
-	debug      bool // Added debug flag
+	debug      bool
 )
 
 func main() {
-	// Parse command line arguments
+
 	flag.StringVar(&configFile, "input", filepath.Join(xdg.ConfigHome, "hyde", "config.toml"),
 		"The input TOML file to parse. Default is $XDG_CONFIG_HOME/hyde/config.toml")
 	flag.StringVar(&envFile, "env", filepath.Join(xdg.StateHome, "hyde", "config"),
@@ -37,10 +37,9 @@ func main() {
 	flag.BoolVar(&noDaemon, "no-daemon", false, "Run in one-off mode without watching for changes (daemon mode is default)")
 	flag.BoolVar(&noExport, "no-export", false, "Disable exporting the parsed data (export is default)")
 	flag.BoolVar(&verbose, "verbose", false, "Enable verbose logging")
-	flag.BoolVar(&debug, "debug", false, "Enable debug mode with detailed logging") // Added debug flag
+	flag.BoolVar(&debug, "debug", false, "Enable debug mode with detailed logging")
 	flag.Parse()
 
-	// Configure logging
 	if verbose || debug {
 		log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds)
 	} else {
@@ -53,9 +52,8 @@ func main() {
 	logInfo("Using hypr output file: %s", hyprFile)
 	logInfo("Export mode: %v", !noExport)
 	logInfo("Daemon mode: %v", !noDaemon)
-	logInfo("Debug mode: %v", debug) // Log debug mode status
+	logInfo("Debug mode: %v", debug)
 
-	// Create parent directories if they don't exist
 	if err := os.MkdirAll(filepath.Dir(envFile), 0755); err != nil {
 		log.Fatalf("Failed to create env file directory: %v", err)
 	}
@@ -63,10 +61,8 @@ func main() {
 		log.Fatalf("Failed to create hypr file directory: %v", err)
 	}
 
-	// Initial parsing of the config
 	parseConfigFiles(configFile, envFile, hyprFile, !noExport)
 
-	// Run in daemon mode by default, unless --no-daemon is specified
 	if !noDaemon {
 		logInfo("Starting daemon mode, watching %s for changes", configFile)
 		watchFile(configFile, envFile, hyprFile, !noExport)
@@ -75,9 +71,8 @@ func main() {
 	}
 }
 
-// Helper function to parse both config files, used both initially and during watch
 func parseConfigFiles(tomlFile, envFile, hyprFile string, exportMode bool) bool {
-	// Verify the TOML file exists and isn't empty before proceeding
+
 	fileInfo, err := os.Stat(tomlFile)
 	if err != nil {
 		logError("Failed to stat config file: %v", err)
@@ -89,7 +84,6 @@ func parseConfigFiles(tomlFile, envFile, hyprFile string, exportMode bool) bool 
 		return false
 	}
 
-	// Load the TOML file content - do this only once to avoid race conditions
 	tomlContent, err := loadTomlFile(tomlFile)
 	if err != nil {
 		logError("Failed to load TOML file: %v", err)
@@ -102,7 +96,6 @@ func parseConfigFiles(tomlFile, envFile, hyprFile string, exportMode bool) bool 
 
 	logDebug("TOML content loaded successfully, size of map: %d", len(tomlContent))
 
-	// Use the same loaded content for both parsing operations
 	success1 := parseTomlToEnvWithContent(tomlContent, envFile, exportMode)
 	success2 := parseTomlToHyprWithContent(tomlContent, hyprFile)
 
@@ -126,7 +119,7 @@ func logError(format string, v ...interface{}) {
 }
 
 func loadTomlFile(tomlFile string) (map[string]interface{}, error) {
-	// First check if the file exists and is readable
+
 	_, err := os.Stat(tomlFile)
 	if err != nil {
 		return nil, fmt.Errorf("failed to access TOML file: %w", err)
@@ -149,15 +142,6 @@ func loadTomlFile(tomlFile string) (map[string]interface{}, error) {
 	}
 
 	return tomlContent, nil
-}
-
-func parseTomlToEnv(tomlFile, envFile string, exportMode bool) bool {
-	tomlContent, err := loadTomlFile(tomlFile)
-	if err != nil {
-		logError("Failed to load TOML file: %v", err)
-		return false
-	}
-	return parseTomlToEnvWithContent(tomlContent, envFile, exportMode)
 }
 
 func parseTomlToEnvWithContent(tomlContent map[string]interface{}, envFile string, exportMode bool) bool {
@@ -186,7 +170,7 @@ func parseTomlToEnvWithContent(tomlContent map[string]interface{}, envFile strin
 	logDebug("Generated %d environment variable lines", len(envVars))
 
 	if envFile != "" {
-		// Create a temporary file and then rename it to avoid race conditions
+
 		tempFile := envFile + ".tmp"
 		if err := writeLinesToFile(tempFile, envVars); err != nil {
 			logError("Failed to write environment variables to temp file: %v", err)
@@ -210,7 +194,7 @@ func parseTomlToEnvWithContent(tomlContent map[string]interface{}, envFile strin
 
 func flattenDict(data map[string]interface{}, parentKey string, ignoredKeys map[string]bool, result *[]string, exportMode bool) {
 	for k, v := range data {
-		// Skip if current key or parent key is in ignored keys
+
 		if ignoredKeys[k] || (parentKey != "" && strings.HasPrefix(parentKey, "hyprland")) {
 			logDebug("Skipping ignored key: %s", k)
 			continue
@@ -264,16 +248,6 @@ func flattenDict(data map[string]interface{}, parentKey string, ignoredKeys map[
 	}
 }
 
-func parseTomlToHypr(tomlFile, hyprFile string) bool {
-	logInfo("Parsing Hyprland variables...")
-	tomlContent, err := loadTomlFile(tomlFile)
-	if err != nil {
-		logError("Failed to load TOML file: %v", err)
-		return false
-	}
-	return parseTomlToHyprWithContent(tomlContent, hyprFile)
-}
-
 func parseTomlToHyprWithContent(tomlContent map[string]interface{}, hyprFile string) bool {
 	if tomlContent == nil {
 		logError("Cannot parse nil TOML content for Hyprland")
@@ -291,7 +265,7 @@ func parseTomlToHyprWithContent(tomlContent map[string]interface{}, hyprFile str
 	logDebug("Generated %d Hyprland variable lines", len(hyprVars))
 
 	if hyprFile != "" {
-		// Create a temporary file and then rename it to avoid race conditions
+
 		tempFile := hyprFile + ".tmp"
 		if err := writeLinesToFile(tempFile, hyprVars); err != nil {
 			logError("Failed to write Hyprland variables to temp file: %v", err)
@@ -316,18 +290,17 @@ func parseTomlToHyprWithContent(tomlContent map[string]interface{}, hyprFile str
 
 func flattenHyprDict(data map[string]interface{}, parentKey string, result *[]string) {
 	for k, v := range data {
-		// Track if we're inside a hyprland section
+
 		isHyprlandSection := strings.HasPrefix(k, "hyprland") || strings.HasPrefix(parentKey, "hyprland")
 
 		if isHyprlandSection {
 			logDebug("Found hyprland key: %s", k)
-			// Remove 'hyprland_' prefix if it exists
+
 			newKey := k
 			if strings.HasPrefix(newKey, "hyprland_") {
 				newKey = strings.Replace(newKey, "hyprland_", "", 1)
 			}
 
-			// If parent_key exists, combine it with current key
 			if parentKey != "" && !strings.HasPrefix(parentKey, "hyprland") {
 				newKey = fmt.Sprintf("%s_%s", parentKey, newKey)
 			} else if strings.HasPrefix(parentKey, "hyprland") {
@@ -366,7 +339,6 @@ func writeLinesToFile(filename string, lines []string) error {
 		return fmt.Errorf("no lines to write")
 	}
 
-	// Make sure the directory exists
 	dir := filepath.Dir(filename)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("failed to create directory %s: %w", dir, err)
@@ -389,7 +361,6 @@ func writeLinesToFile(filename string, lines []string) error {
 		return fmt.Errorf("failed to flush file buffer: %w", err)
 	}
 
-	// Make sure data is written to disk
 	if err := file.Sync(); err != nil {
 		return fmt.Errorf("failed to sync file to disk: %w", err)
 	}
@@ -405,7 +376,6 @@ func watchFile(tomlFile, envFile, hyprFile string, exportMode bool) {
 	}
 	defer watcher.Close()
 
-	// Get the directory of the tomlFile
 	configDir := filepath.Dir(tomlFile)
 	err = watcher.Add(configDir)
 	if err != nil {
@@ -418,7 +388,6 @@ func watchFile(tomlFile, envFile, hyprFile string, exportMode bool) {
 	lastMod := time.Now()
 	debounceInterval := 300 * time.Millisecond
 
-	// Process events
 	for {
 		select {
 		case event, ok := <-watcher.Events:
@@ -426,28 +395,24 @@ func watchFile(tomlFile, envFile, hyprFile string, exportMode bool) {
 				return
 			}
 
-			// Only process events for our specific file
 			if filepath.Base(event.Name) != filepath.Base(tomlFile) {
 				continue
 			}
 
 			logDebug("Received event %s for file %s", event.Op, event.Name)
 
-			// Filter events to avoid duplicates - we're interested in writes and create events
 			if event.Op&(fsnotify.Write|fsnotify.Create) != 0 {
-				// Get file info to check modification time
+
 				info, err := os.Stat(tomlFile)
 				if err != nil {
 					logError("Failed to stat file: %v", err)
 					continue
 				}
 
-				// Only process if file was modified more than debounce interval ago
 				if time.Since(lastMod) > debounceInterval {
 					lastMod = info.ModTime()
 					logInfo("Config file changed (size: %d bytes), reprocessing", info.Size())
 
-					// Wait a small amount of time to ensure the file is completely written
 					time.Sleep(50 * time.Millisecond)
 
 					parseConfigFiles(tomlFile, envFile, hyprFile, exportMode)
