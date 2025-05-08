@@ -1,0 +1,20 @@
+# Build directories
+/build/
+
+
+
+# Go workspace file
+go.work
+
+# Go module cache
+/pkg/
+# Go Sum lock file (optional, some projects commit this file)
+# go.sum
+
+# IDE specific files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
