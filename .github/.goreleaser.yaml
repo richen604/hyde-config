@@ -1,0 +1,63 @@
+project_name: hyde-config
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    main: ./cmd/main.go
+    binary: "hyde-config"
+    ldflags:
+      - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
+
+archives:
+  - format: tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      # - LICENSE # TODO: add license
+      - README.md
+
+nfpms:
+  - vendor: "HyDE-Project"
+    homepage: "https://github.com/HyDE-Project/hyde-config"
+    maintainer: "HyDE-Project"
+    description: "Hyde Configuration Parser"
+    license: "MIT"
+    formats:
+      - deb
+      - rpm
+      - archlinux
+    bindir: /usr/bin
+    section: utils
+    contents:
+      - src: ./README.md
+        dst: /usr/share/doc/hyde-config/README.md
+
+checksum:
+  name_template: "checksums.txt"
+
+snapshot:
+  name_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
+      - "^chore:"
+
+release:
+  github:
+    owner: HyDE-Project
+    name: hyde-config
+  prerelease: auto
+  draft: false
