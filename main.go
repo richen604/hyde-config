@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/adrg/xdg"
@@ -16,58 +17,69 @@ import (
 	"github.com/pelletier/go-toml/v2"
 )
 
+type Config struct {
+	ConfigFile string
+	EnvFile    string
+	HyprFile   string
+	NoDaemon   bool
+	NoExport   bool
+	Verbose    bool
+	Debug      bool
+}
+
+type TomlMap map[string]interface{}
+
+type EnvVars []string
+type HyprVars []string
+
 var (
-	verbose    bool
-	configFile string
-	envFile    string
-	hyprFile   string
-	noDaemon   bool
-	noExport   bool
-	debug      bool
+	config Config
 )
 
 func main() {
 
-	flag.StringVar(&configFile, "input", filepath.Join(xdg.ConfigHome, "hyde", "config.toml"),
+	flag.StringVar(&config.ConfigFile, "input", filepath.Join(xdg.ConfigHome, "hyde", "config.toml"),
 		"The input TOML file to parse. Default is $XDG_CONFIG_HOME/hyde/config.toml")
-	flag.StringVar(&envFile, "env", filepath.Join(xdg.StateHome, "hyde", "config"),
+	flag.StringVar(&config.EnvFile, "env", filepath.Join(xdg.StateHome, "hyde", "config"),
 		"The output environment file. Default is $XDG_STATE_HOME/hyde/config")
-	flag.StringVar(&hyprFile, "hypr", filepath.Join(xdg.StateHome, "hyde", "hyprland.conf"),
+	flag.StringVar(&config.HyprFile, "hypr", filepath.Join(xdg.StateHome, "hyde", "hyprland.conf"),
 		"The output Hyprland file. Default is $XDG_STATE_HOME/hyde/hyprland.conf")
-	flag.BoolVar(&noDaemon, "no-daemon", false, "Run in one-off mode without watching for changes (daemon mode is default)")
-	flag.BoolVar(&noExport, "no-export", false, "Disable exporting the parsed data (export is default)")
-	flag.BoolVar(&verbose, "verbose", false, "Enable verbose logging")
-	flag.BoolVar(&debug, "debug", false, "Enable debug mode with detailed logging")
+	flag.BoolVar(&config.NoDaemon, "no-daemon", false, "Run in one-off mode without watching for changes (daemon mode is default)")
+	flag.BoolVar(&config.NoExport, "no-export", false, "Disable exporting the parsed data (export is default)")
+	flag.BoolVar(&config.Verbose, "verbose", false, "Enable verbose logging")
+	flag.BoolVar(&config.Debug, "debug", false, "Enable debug mode with detailed logging")
 	flag.Parse()
 
-	if verbose || debug {
+	if config.Verbose || config.Debug {
 		log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds)
 	} else {
 		log.SetFlags(0)
 	}
 	log.SetPrefix("hyde-config: ")
 
-	logInfo("Using config file: %s", configFile)
-	logInfo("Using env output file: %s", envFile)
-	logInfo("Using hypr output file: %s", hyprFile)
-	logInfo("Export mode: %v", !noExport)
-	logInfo("Daemon mode: %v", !noDaemon)
-	logInfo("Debug mode: %v", debug)
+	logInfo("Using config file: %s", config.ConfigFile)
+	logInfo("Using env output file: %s", config.EnvFile)
+	logInfo("Using hypr output file: %s", config.HyprFile)
+	logInfo("Export mode: %v", !config.NoExport)
+	logInfo("Daemon mode: %v", !config.NoDaemon)
+	logInfo("Debug mode: %v", config.Debug)
 
-	if err := os.MkdirAll(filepath.Dir(envFile), 0755); err != nil {
-		log.Fatalf("Failed to create env file directory: %v", err)
-	}
-	if err := os.MkdirAll(filepath.Dir(hyprFile), 0755); err != nil {
-		log.Fatalf("Failed to create hypr file directory: %v", err)
-	}
+	ensureDirExists(filepath.Dir(config.EnvFile))
+	ensureDirExists(filepath.Dir(config.HyprFile))
 
-	parseConfigFiles(configFile, envFile, hyprFile, !noExport)
+	parseConfigFiles(config.ConfigFile, config.EnvFile, config.HyprFile, !config.NoExport)
 
-	if !noDaemon {
-		logInfo("Starting daemon mode, watching %s for changes", configFile)
-		watchFile(configFile, envFile, hyprFile, !noExport)
+	if !config.NoDaemon {
+		logInfo("Starting daemon mode, watching %s for changes", config.ConfigFile)
+		watchFile(config.ConfigFile, config.EnvFile, config.HyprFile, !config.NoExport)
 	} else {
 		logInfo("Running in one-off mode (no watching for changes)")
+	}
+}
+
+func ensureDirExists(dir string) {
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		log.Fatalf("Failed to create directory: %v", err)
 	}
 }
 
@@ -89,27 +101,41 @@ func parseConfigFiles(tomlFile, envFile, hyprFile string, exportMode bool) bool 
 		logError("Failed to load TOML file: %v", err)
 		return false
 	}
-	if tomlContent == nil {
-		logError("TOML content is nil, skipping parse")
+	if len(tomlContent) == 0 {
+		logError("TOML content is empty, skipping parse")
 		return false
 	}
 
 	logDebug("TOML content loaded successfully, size of map: %d", len(tomlContent))
 
-	success1 := parseTomlToEnvWithContent(tomlContent, envFile, exportMode)
-	success2 := parseTomlToHyprWithContent(tomlContent, hyprFile)
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	var success1, success2 bool
+
+	go func() {
+		defer wg.Done()
+		success1 = parseTomlToEnvWithContent(tomlContent, envFile, exportMode)
+	}()
+
+	go func() {
+		defer wg.Done()
+		success2 = parseTomlToHyprWithContent(tomlContent, hyprFile)
+	}()
+
+	wg.Wait()
 
 	return success1 && success2
 }
 
 func logInfo(format string, v ...interface{}) {
-	if verbose || debug {
+	if config.Verbose || config.Debug {
 		log.Printf(format, v...)
 	}
 }
 
 func logDebug(format string, v ...interface{}) {
-	if debug {
+	if config.Debug {
 		log.Printf("DEBUG: "+format, v...)
 	}
 }
@@ -118,7 +144,7 @@ func logError(format string, v ...interface{}) {
 	log.Printf("ERROR: "+format, v...)
 }
 
-func loadTomlFile(tomlFile string) (map[string]interface{}, error) {
+func loadTomlFile(tomlFile string) (TomlMap, error) {
 
 	_, err := os.Stat(tomlFile)
 	if err != nil {
@@ -136,7 +162,7 @@ func loadTomlFile(tomlFile string) (map[string]interface{}, error) {
 
 	logDebug("Read %d bytes from TOML file", len(data))
 
-	var tomlContent map[string]interface{}
+	var tomlContent TomlMap
 	if err := toml.Unmarshal(data, &tomlContent); err != nil {
 		return nil, fmt.Errorf("failed to parse TOML: %w", err)
 	}
@@ -144,7 +170,7 @@ func loadTomlFile(tomlFile string) (map[string]interface{}, error) {
 	return tomlContent, nil
 }
 
-func parseTomlToEnvWithContent(tomlContent map[string]interface{}, envFile string, exportMode bool) bool {
+func parseTomlToEnvWithContent(tomlContent TomlMap, envFile string, exportMode bool) bool {
 	ignoredKeys := map[string]bool{
 		"$schema":        true,
 		"$SCHEMA":        true,
@@ -154,12 +180,12 @@ func parseTomlToEnvWithContent(tomlContent map[string]interface{}, envFile strin
 		"hyprland-start": true,
 	}
 
-	if tomlContent == nil {
-		logError("Cannot parse nil TOML content")
+	if len(tomlContent) == 0 {
+		logError("Cannot parse empty TOML content")
 		return false
 	}
 
-	var envVars []string
+	envVars := make(EnvVars, 0, len(tomlContent)*2)
 	flattenDict(tomlContent, "", ignoredKeys, &envVars, exportMode)
 
 	if len(envVars) == 0 {
@@ -179,6 +205,8 @@ func parseTomlToEnvWithContent(tomlContent map[string]interface{}, envFile strin
 
 		if err := os.Rename(tempFile, envFile); err != nil {
 			logError("Failed to replace environment file: %v", err)
+
+			os.Remove(tempFile)
 			return false
 		}
 
@@ -192,7 +220,7 @@ func parseTomlToEnvWithContent(tomlContent map[string]interface{}, envFile strin
 	}
 }
 
-func flattenDict(data map[string]interface{}, parentKey string, ignoredKeys map[string]bool, result *[]string, exportMode bool) {
+func flattenDict(data TomlMap, parentKey string, ignoredKeys map[string]bool, result *EnvVars, exportMode bool) {
 	for k, v := range data {
 
 		if ignoredKeys[k] || (parentKey != "" && strings.HasPrefix(parentKey, "hyprland")) {
@@ -213,9 +241,11 @@ func flattenDict(data map[string]interface{}, parentKey string, ignoredKeys map[
 
 		switch val := v.(type) {
 		case map[string]interface{}:
-			flattenDict(val, newKey, ignoredKeys, result, exportMode)
+
+			flattenDict(TomlMap(val), newKey, ignoredKeys, result, exportMode)
 		case []interface{}:
-			var arrayItems []string
+
+			arrayItems := make([]string, 0, len(val))
 			for _, item := range val {
 				arrayItems = append(arrayItems, fmt.Sprintf("\"%v\"", item))
 			}
@@ -226,6 +256,7 @@ func flattenDict(data map[string]interface{}, parentKey string, ignoredKeys map[
 				*result = append(*result, fmt.Sprintf("%s=%s", newKey, value))
 			}
 		case bool:
+
 			value := strconv.FormatBool(val)
 			if exportMode {
 				*result = append(*result, fmt.Sprintf("export %s=%s", newKey, value))
@@ -233,12 +264,14 @@ func flattenDict(data map[string]interface{}, parentKey string, ignoredKeys map[
 				*result = append(*result, fmt.Sprintf("%s=%s", newKey, value))
 			}
 		case int64, float64:
+
 			if exportMode {
 				*result = append(*result, fmt.Sprintf("export %s=%v", newKey, val))
 			} else {
 				*result = append(*result, fmt.Sprintf("%s=%v", newKey, val))
 			}
 		default:
+
 			if exportMode {
 				*result = append(*result, fmt.Sprintf("export %s=\"%v\"", newKey, val))
 			} else {
@@ -248,13 +281,13 @@ func flattenDict(data map[string]interface{}, parentKey string, ignoredKeys map[
 	}
 }
 
-func parseTomlToHyprWithContent(tomlContent map[string]interface{}, hyprFile string) bool {
-	if tomlContent == nil {
-		logError("Cannot parse nil TOML content for Hyprland")
+func parseTomlToHyprWithContent(tomlContent TomlMap, hyprFile string) bool {
+	if len(tomlContent) == 0 {
+		logError("Cannot parse empty TOML content for Hyprland")
 		return false
 	}
 
-	var hyprVars []string
+	hyprVars := make(HyprVars, 0, 32)
 	flattenHyprDict(tomlContent, "", &hyprVars)
 
 	if len(hyprVars) == 0 {
@@ -274,6 +307,8 @@ func parseTomlToHyprWithContent(tomlContent map[string]interface{}, hyprFile str
 
 		if err := os.Rename(tempFile, hyprFile); err != nil {
 			logError("Failed to replace Hyprland file: %v", err)
+
+			os.Remove(tempFile)
 			return false
 		}
 
@@ -288,7 +323,7 @@ func parseTomlToHyprWithContent(tomlContent map[string]interface{}, hyprFile str
 	}
 }
 
-func flattenHyprDict(data map[string]interface{}, parentKey string, result *[]string) {
+func flattenHyprDict(data TomlMap, parentKey string, result *HyprVars) {
 	for k, v := range data {
 
 		isHyprlandSection := strings.HasPrefix(k, "hyprland") || strings.HasPrefix(parentKey, "hyprland")
@@ -313,9 +348,9 @@ func flattenHyprDict(data map[string]interface{}, parentKey string, result *[]st
 
 			switch val := v.(type) {
 			case map[string]interface{}:
-				flattenHyprDict(val, newKey, result)
+				flattenHyprDict(TomlMap(val), newKey, result)
 			case []interface{}:
-				var arrayItems []string
+				arrayItems := make([]string, 0, len(val))
 				for _, item := range val {
 					arrayItems = append(arrayItems, fmt.Sprintf("%v", item))
 				}
@@ -368,6 +403,11 @@ func writeLinesToFile(filename string, lines []string) error {
 	return nil
 }
 
+var (
+	watcherMutex sync.Mutex
+	lastMod      time.Time
+)
+
 func watchFile(tomlFile, envFile, hyprFile string, exportMode bool) {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
@@ -385,8 +425,12 @@ func watchFile(tomlFile, envFile, hyprFile string, exportMode bool) {
 
 	logInfo("Watching directory %s for changes to %s", configDir, filepath.Base(tomlFile))
 
-	lastMod := time.Now()
+	watcherMutex.Lock()
+	lastMod = time.Now()
+	watcherMutex.Unlock()
+
 	debounceInterval := 300 * time.Millisecond
+	configFileName := filepath.Base(tomlFile)
 
 	for {
 		select {
@@ -395,7 +439,7 @@ func watchFile(tomlFile, envFile, hyprFile string, exportMode bool) {
 				return
 			}
 
-			if filepath.Base(event.Name) != filepath.Base(tomlFile) {
+			if filepath.Base(event.Name) != configFileName {
 				continue
 			}
 
@@ -409,8 +453,14 @@ func watchFile(tomlFile, envFile, hyprFile string, exportMode bool) {
 					continue
 				}
 
-				if time.Since(lastMod) > debounceInterval {
+				watcherMutex.Lock()
+				shouldProcess := time.Since(lastMod) > debounceInterval
+				if shouldProcess {
 					lastMod = info.ModTime()
+				}
+				watcherMutex.Unlock()
+
+				if shouldProcess {
 					logInfo("Config file changed (size: %d bytes), reprocessing", info.Size())
 
 					time.Sleep(50 * time.Millisecond)
