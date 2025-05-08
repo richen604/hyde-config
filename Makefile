@@ -7,8 +7,9 @@ LIBDIR = $(PREFIX)/lib/hyde
 CFGDIR = $(HOME)/.config/hyde
 STATEDIR = $(HOME)/.local/state/hyde
 SVCDIR = $(HOME)/.config/systemd/user
-BUILDDIR = build
-RELEASEDIR = bin
+BUILDDIR = bin
+HASH_ALGO = sha256sum
+GO_FLAGS = -ldflags="-s -w"
 
 .PHONY: all build install uninstall clean run service-install service-enable service-disable
 
@@ -16,11 +17,9 @@ all: build
 
 build:
 	mkdir -p $(BUILDDIR)
-	$(GO) build -ldflags="-s -w" -o $(BUILDDIR)/$(NAME)
-
-release:
-	mkdir -p $(RELEASEDIR)
-	$(GO) build -ldflags="-s -w" -o $(RELEASEDIR)/$(NAME)
+	$(GO) build $(GO_FLAGS) -o $(BUILDDIR)/$(NAME)
+	cd $(BUILDDIR) && $(HASH_ALGO) $(NAME) > $(NAME).$(HASH_ALGO)
+	@echo "Build binary and hash created in $(BUILDDIR)/"
 
 install: build
 	mkdir -p $(LIBDIR) $(CFGDIR) $(STATEDIR)
@@ -55,5 +54,5 @@ uninstall:
 	@echo "Uninstalled"
 
 clean:
-	rm -rf $(BUILDDIR) $(RELEASEDIR)
+	rm -rf $(BUILDDIR)
 	$(GO) clean
