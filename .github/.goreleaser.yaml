@@ -1,3 +1,5 @@
+version: 2
+
 project_name: hyde-config
 
 before:
@@ -12,13 +14,14 @@ builds:
     goarch:
       - amd64
       - arm64
-    main: ./cmd/main.go
+    main: ./main.go
     binary: "hyde-config"
     ldflags:
       - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
 
 archives:
-  - format: tar.gz
+  - formats:
+      - tar.gz
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     files:
       # - LICENSE # TODO: add license
@@ -27,8 +30,8 @@ archives:
 nfpms:
   - vendor: "HyDE-Project"
     homepage: "https://github.com/HyDE-Project/hyde-config"
-    maintainer: "HyDE-Project"
-    description: "Hyde Configuration Parser"
+    maintainer: "HyDE-Project <contact@hyde-project.org>"
+    description: "Hyde Configuration Parser and Watcher"
     license: "MIT"
     formats:
       - deb
@@ -36,15 +39,58 @@ nfpms:
       - archlinux
     bindir: /usr/bin
     section: utils
+    priority: optional
     contents:
       - src: ./README.md
         dst: /usr/share/doc/hyde-config/README.md
+      - src: ./hyde-config.service
+        dst: /usr/lib/systemd/user/hyde-config.service
+        file_info:
+          mode: 0644
+    scripts:
+      postinstall: |
+        echo "Hyde-config installed successfully!"
+        echo "To enable as a user service, run:"
+        echo "  systemctl --user enable hyde-config.service"
+        echo "  systemctl --user start hyde-config.service"
+      preremove: |
+        systemctl --user stop hyde-config.service 2>/dev/null || true
+        systemctl --user disable hyde-config.service 2>/dev/null || true
+
+aurs:
+  - name: hyde-config
+    homepage: "https://github.com/HyDE-Project/hyde-config"
+    description: "Hyde Configuration Parser and Watcher for HyDE Project"
+    maintainers:
+      - "HyDE-Project <contact@hyde-project.org>"
+    license: "MIT"
+    private_key: "{{ .Env.AUR_PRIVATE_KEY }}"
+    git_url: "ssh://aur@aur.archlinux.org/hyde-config.git"
+    depends:
+      - glibc
+    optdepends:
+      - "systemd: for user service support"
+    provides:
+      - hyde-config
+    conflicts:
+      - hyde-config-git
+    backup:
+      - etc/hyde/config.toml
+    package: |-
+      # Install binary
+      install -Dm755 hyde-config "${pkgdir}/usr/bin/hyde-config"
+      
+      # Install documentation
+      install -Dm644 README.md "${pkgdir}/usr/share/doc/${pkgname}/README.md"
+      
+      # Install systemd user service
+      install -Dm644 hyde-config.service "${pkgdir}/usr/lib/systemd/user/hyde-config.service"
+    commit_author:
+      name: "HyDE-Project Bot"
+      email: "bot@hyde-project.org"
 
 checksum:
   name_template: "checksums.txt"
-
-snapshot:
-  name_template: "{{ incpatch .Version }}-next"
 
 changelog:
   sort: asc
@@ -54,10 +100,3 @@ changelog:
       - "^test:"
       - "^ci:"
       - "^chore:"
-
-release:
-  github:
-    owner: HyDE-Project
-    name: hyde-config
-  prerelease: auto
-  draft: false

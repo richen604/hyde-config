@@ -1,0 +1,45 @@
+# Maintainer: HyDE-Project <contact@hyde-project.org>
+
+pkgname=hyde-config
+pkgver={{ .Version }}
+pkgrel=1
+pkgdesc="Hyde Configuration Parser and Watcher for HyDE Project"
+arch=('x86_64' 'aarch64')
+url="https://github.com/HyDE-Project/hyde-config"
+license=('MIT')
+depends=('glibc')
+optdepends=('systemd: for user service support')
+provides=('hyde-config')
+conflicts=('hyde-config-git')
+source=("${pkgname}-${pkgver}.tar.gz::${url}/archive/v${pkgver}.tar.gz")
+sha256sums=('{{ .Checksum }}')
+
+build() {
+    cd "${pkgname}-${pkgver}"
+    export CGO_ENABLED=0
+    export GOFLAGS="-buildmode=pie -trimpath -ldflags=-linkmode=external -mod=readonly -modcacherw"
+    go build -ldflags="-s -w -X main.version=${pkgver}" -o ${pkgname}
+}
+
+check() {
+    cd "${pkgname}-${pkgver}"
+    go test ./...
+}
+
+package() {
+    cd "${pkgname}-${pkgver}"
+    
+    # Install binary
+    install -Dm755 ${pkgname} "${pkgdir}/usr/bin/${pkgname}"
+    
+    # Install documentation
+    install -Dm644 README.md "${pkgdir}/usr/share/doc/${pkgname}/README.md"
+    
+    # Install systemd user service
+    install -Dm644 hyde-config.service "${pkgdir}/usr/lib/systemd/user/hyde-config.service"
+    
+    # Install license (if exists)
+    if [ -f LICENSE ]; then
+        install -Dm644 LICENSE "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+    fi
+}
