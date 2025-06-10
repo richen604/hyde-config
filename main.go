@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	notify_send_wrapper "github.com/Imnotndesh/notify-send-wrapper"
 	"github.com/adrg/xdg"
 	"github.com/fsnotify/fsnotify"
 	"github.com/pelletier/go-toml/v2"
@@ -98,7 +99,7 @@ func parseConfigFiles(tomlFile, envFile, hyprFile string, exportMode bool) bool 
 
 	tomlContent, err := loadTomlFile(tomlFile)
 	if err != nil {
-		logError("Failed to load TOML file: %v", err)
+		// Error already logged by loadTomlFile/logTomlError, just return
 		return false
 	}
 	if len(tomlContent) == 0 {
@@ -125,7 +126,14 @@ func parseConfigFiles(tomlFile, envFile, hyprFile string, exportMode bool) bool 
 
 	wg.Wait()
 
-	return success1 && success2
+	success := success1 && success2
+
+	// Send success notification only in daemon mode for successful parses
+	if success && !config.NoDaemon {
+		sendSuccessNotification("Hyde Config", "Configuration reloaded successfully")
+	}
+
+	return success
 }
 
 func logInfo(format string, v ...interface{}) {
@@ -141,7 +149,104 @@ func logDebug(format string, v ...interface{}) {
 }
 
 func logError(format string, v ...interface{}) {
-	log.Printf("ERROR: "+format, v...)
+	errorMsg := fmt.Sprintf(format, v...)
+	log.Printf("ERROR: " + errorMsg)
+
+	// Send desktop notification for errors (only in daemon mode)
+	if !config.NoDaemon {
+		sendErrorNotification("Hyde Config Error", errorMsg)
+	}
+}
+
+// sendErrorNotification sends a critical error notification with detailed information
+func sendErrorNotification(title, message string) {
+	notification := notify_send_wrapper.NewNotification().
+		SetSummary(title).
+		SetBody(message).
+		SetUrgency(notify_send_wrapper.UrgencyCritical).
+		SetIcon("dialog-error").
+		SetAppName("hyde-config").
+		SetCategory(notify_send_wrapper.CategorySystem).
+		SetExpireTime(15000) // Show for 15 seconds
+
+	// Run notification in background to avoid blocking
+	go func() {
+		err := notification.Send()
+		if err != nil {
+			logDebug("Failed to send notification: %v", err)
+		}
+	}()
+}
+
+// sendSuccessNotification sends a success notification
+func sendSuccessNotification(title, message string) {
+	// Only send success notifications in daemon mode and if verbose
+	if config.NoDaemon || (!config.Verbose && !config.Debug) {
+		return
+	}
+
+	notification := notify_send_wrapper.NewNotification().
+		SetSummary(title).
+		SetBody(message).
+		SetUrgency(notify_send_wrapper.UrgencyNormal).
+		SetIcon("dialog-information").
+		SetAppName("hyde-config").
+		SetCategory(notify_send_wrapper.CategorySystem).
+		SetExpireTime(5000) // Show for 5 seconds
+
+	go func() {
+		err := notification.Send()
+		if err != nil {
+			logDebug("Failed to send notification: %v", err)
+		}
+	}()
+}
+
+// logTomlError provides enhanced error logging with detailed TOML parsing information
+func logTomlError(err error, filePath string) {
+	errorMessage := err.Error()
+	fileName := filepath.Base(filePath)
+
+	// Enhanced TOML error parsing
+	var detailedMessage string
+	if strings.Contains(errorMessage, "line") && strings.Contains(errorMessage, "column") {
+		// Extract line and column information for better user feedback
+		detailedMessage = fmt.Sprintf("TOML Syntax Error in %s:\n\n%s\n\nPlease check the file for syntax errors and try again.", fileName, errorMessage)
+	} else if strings.Contains(errorMessage, "line") {
+		// Just line information available
+		detailedMessage = fmt.Sprintf("TOML Parse Error in %s:\n\n%s", fileName, errorMessage)
+	} else {
+		// Generic TOML error
+		detailedMessage = fmt.Sprintf("TOML Error in %s:\n\n%s", fileName, errorMessage)
+	}
+
+	log.Printf("ERROR: %s", detailedMessage)
+
+	// Send enhanced notification only in daemon mode
+	if !config.NoDaemon {
+		// Truncate very long messages for notification
+		notificationMsg := detailedMessage
+		if len(notificationMsg) > 250 {
+			notificationMsg = detailedMessage[:250] + "..."
+		}
+
+		notification := notify_send_wrapper.NewNotification().
+			SetSummary("Hyde Config: TOML Syntax Error").
+			SetBody(notificationMsg).
+			SetUrgency(notify_send_wrapper.UrgencyCritical).
+			SetIcon("dialog-error").
+			SetAppName("hyde-config").
+			SetCategory(notify_send_wrapper.CategorySystem).
+			SetExpireTime(20000).                             // Show for 20 seconds for syntax errors
+			AddHint(notify_send_wrapper.HintResident, "true") // Make it persistent
+
+		go func() {
+			err := notification.Send()
+			if err != nil {
+				logDebug("Failed to send TOML error notification: %v", err)
+			}
+		}()
+	}
 }
 
 func loadTomlFile(tomlFile string) (TomlMap, error) {
@@ -164,6 +269,8 @@ func loadTomlFile(tomlFile string) (TomlMap, error) {
 
 	var tomlContent TomlMap
 	if err := toml.Unmarshal(data, &tomlContent); err != nil {
+		// Use enhanced error logging for TOML parsing errors
+		logTomlError(err, tomlFile)
 		return nil, fmt.Errorf("failed to parse TOML: %w", err)
 	}
 

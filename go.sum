@@ -1,3 +1,5 @@
+github.com/Imnotndesh/notify-send-wrapper v1.0.4 h1:V5Ufa/yY1dH3hG5yzqG5Cfn9IscoaRRX9laDzKkM7i8=
+github.com/Imnotndesh/notify-send-wrapper v1.0.4/go.mod h1:WEWgYxFo6EM1WrcTbhRvpiSUG9YzHNv1epjCGkStP1Q=
 github.com/adrg/xdg v0.4.0 h1:RzRqFcjH4nE5C6oTAxhBtoE2IRyjBSa62SCbyPidvls=
 github.com/adrg/xdg v0.4.0/go.mod h1:N6ag73EX4wyxeaoeHctc1mas01KZgsj5tYiAIwqJE/E=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
