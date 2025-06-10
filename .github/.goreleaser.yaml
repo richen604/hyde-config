@@ -47,15 +47,6 @@ nfpms:
         dst: /usr/lib/systemd/user/hyde-config.service
         file_info:
           mode: 0644
-    scripts:
-      postinstall: |
-        echo "Hyde-config installed successfully!"
-        echo "To enable as a user service, run:"
-        echo "  systemctl --user enable hyde-config.service"
-        echo "  systemctl --user start hyde-config.service"
-      preremove: |
-        systemctl --user stop hyde-config.service 2>/dev/null || true
-        systemctl --user disable hyde-config.service 2>/dev/null || true
 
 aurs:
   - name: hyde-config
