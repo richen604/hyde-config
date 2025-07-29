@@ -39,6 +39,8 @@ var (
 	hydeConfigNotificationID = 19
 
 	isInitialStartup = true
+
+	noStartup bool // --no-startup flag
 )
 
 func main() {
@@ -53,6 +55,7 @@ func main() {
 	flag.BoolVar(&config.NoExport, "no-export", false, "Disable exporting the parsed data (export is default)")
 	flag.BoolVar(&config.Verbose, "verbose", false, "Enable verbose logging")
 	flag.BoolVar(&config.Debug, "debug", false, "Enable debug mode with detailed logging")
+	flag.BoolVar(&noStartup, "no-startup", false, "Do not populate configs on startup, only parse and report errors")
 	flag.Parse()
 
 	if config.Verbose || config.Debug {
@@ -72,12 +75,26 @@ func main() {
 	ensureDirExists(filepath.Dir(config.EnvFile))
 	ensureDirExists(filepath.Dir(config.HyprFile))
 
-	parseConfigFiles(config.ConfigFile, config.EnvFile, config.HyprFile, !config.NoExport)
+	if noStartup {
+		logInfo("--no-startup: Only parsing config and reporting errors, not populating configs on startup")
+		tomlContent, err := loadTomlFile(config.ConfigFile)
+		if err != nil {
+			logError("Startup parse error: %v", err)
+			os.Exit(1)
+		}
+		if len(tomlContent) == 0 {
+			logError("Startup TOML content is empty")
+			os.Exit(1)
+		}
+		logInfo("Config parsed successfully on startup (no configs written)")
+		// continue to daemon mode if enabled
+	}
 
 	if !config.NoDaemon {
 		logInfo("Starting daemon mode, watching %s for changes", config.ConfigFile)
 		watchFile(config.ConfigFile, config.EnvFile, config.HyprFile, !config.NoExport)
-	} else {
+	} else if !noStartup {
+		parseConfigFiles(config.ConfigFile, config.EnvFile, config.HyprFile, !config.NoExport)
 		logInfo("Running in one-off mode (no watching for changes)")
 	}
 }
@@ -170,7 +187,7 @@ func sendSuccessNotification(title, message string) {
 	notification := notify_send_wrapper.NewNotification().
 		SetSummary(title).
 		SetBody(message).
-		SetUrgency(notify_send_wrapper.UrgencyCritical).
+		SetUrgency(notify_send_wrapper.UrgencyNormal).
 		SetIcon("dialog-information").
 		SetAppName("hyde-config").
 		SetCategory(notify_send_wrapper.CategorySystem).
@@ -213,7 +230,7 @@ func logTomlError(err error, filePath string) {
 		notification := notify_send_wrapper.NewNotification().
 			SetSummary("Hyde Config: TOML Syntax Error").
 			SetBody(notificationMsg).
-			SetUrgency(notify_send_wrapper.UrgencyCritical).
+			SetUrgency(notify_send_wrapper.UrgencyNormal).
 			SetIcon("dialog-error").
 			SetAppName("hyde-config").
 			SetCategory(notify_send_wrapper.CategorySystem).
@@ -285,7 +302,8 @@ func parseTomlToEnvWithContent(tomlContent TomlMap, envFile string, exportMode b
 
 	if envFile != "" {
 
-		tempFile := envFile + ".tmp"
+		// Use a unique temp file name to avoid race conditions
+		tempFile := fmt.Sprintf("%s.tmp.%d.%d", envFile, os.Getpid(), time.Now().UnixNano())
 		if err := writeLinesToFile(tempFile, envVars); err != nil {
 			logError("Failed to write environment variables to temp file: %v", err)
 			return false
@@ -293,7 +311,6 @@ func parseTomlToEnvWithContent(tomlContent TomlMap, envFile string, exportMode b
 
 		if err := os.Rename(tempFile, envFile); err != nil {
 			logError("Failed to replace environment file: %v", err)
-
 			os.Remove(tempFile)
 			return false
 		}
@@ -387,7 +404,8 @@ func parseTomlToHyprWithContent(tomlContent TomlMap, hyprFile string) bool {
 
 	if hyprFile != "" {
 
-		tempFile := hyprFile + ".tmp"
+		// Use a unique temp file name to avoid race conditions
+		tempFile := fmt.Sprintf("%s.tmp.%d.%d", hyprFile, os.Getpid(), time.Now().UnixNano())
 		if err := writeLinesToFile(tempFile, hyprVars); err != nil {
 			logError("Failed to write Hyprland variables to temp file: %v", err)
 			return false
@@ -395,7 +413,6 @@ func parseTomlToHyprWithContent(tomlContent TomlMap, hyprFile string) bool {
 
 		if err := os.Rename(tempFile, hyprFile); err != nil {
 			logError("Failed to replace Hyprland file: %v", err)
-
 			os.Remove(tempFile)
 			return false
 		}
