@@ -2,8 +2,6 @@
 /build/
 /dist/
 
-
-
 # Go workspace file
 go.work
 
@@ -19,3 +17,6 @@ go.work
 *.swo
 *~
 
+# Nix flake
+.direnv/
+result/
